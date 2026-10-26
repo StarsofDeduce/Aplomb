@@ -40,6 +40,8 @@ IMMOVABLE_CLASSES = frozenset({
     "WorkerW",
 })
 
+ELEVATION_REQUIRED = "目标窗口需要管理员授权"
+
 
 @dataclass(slots=True)
 class WindowInfo:
@@ -367,6 +369,8 @@ def center(info: WindowInfo, pixel_perfect: bool = True,
             if on_centered is not None:
                 on_centered(info)
             return True, ""
+        if ctypes.get_last_error() == W.ERROR_ACCESS_DENIED:
+            return False, ELEVATION_REQUIRED
         return False, "系统拒绝了这次移动"
 
     rect = _effective_rect(hwnd)
@@ -380,6 +384,8 @@ def center(info: WindowInfo, pixel_perfect: bool = True,
         # 纯移动：尺寸不变就不重设，目标应用不会收到多余的 WM_SIZE
         flags |= W.SWP_NOSIZE
     if not W.set_window_pos(hwnd, x, y, cx, cy, flags):
+        if ctypes.get_last_error() == W.ERROR_ACCESS_DENIED:
+            return False, ELEVATION_REQUIRED
         return False, "系统拒绝了这次移动"
     if on_centered is not None:
         on_centered(info)
@@ -395,43 +401,66 @@ def belongs_to_us(hwnd: int) -> bool:
     return pid.value == _own_pid()
 
 
-def center_foreground(pixel_perfect: bool = True,
-                      on_centered=None) -> tuple[bool, str]:
-    """居中前台窗口。
+def foreground_info(fallback_hwnd: int = 0) -> tuple[WindowInfo | None, str]:
+    """返回当前可操作窗口；托盘抢走焦点时退回最近的有效窗口。
 
     如果焦点落在 Aplomb 自己身上（比如正在看设置界面），也照样居中它自己 ——
     「把当前这个窗口摆正」是最符合直觉的行为。但批量居中和选择器列表里
     不会包含自己，避免误伤。
     """
-    hwnd = W.user32.GetForegroundWindow()
+    hwnd = int(W.user32.GetForegroundWindow() or 0)
     if not hwnd:
-        return False, "没有找到活动窗口"
+        return None, "没有找到活动窗口"
 
     info = inspect(hwnd, allow_own=True)
+    if info is not None:
+        return info, ""
+
+    # 打开托盘菜单后，前台窗口可能变成任务栏或本进程的临时菜单。
+    # 只回退到 WinEvent 记录的最近有效顶层窗口，不根据 Z 序猜测。
+    if fallback_hwnd and fallback_hwnd != hwnd:
+        fallback = inspect(fallback_hwnd, allow_own=False)
+        if fallback is not None:
+            return fallback, ""
+
+    # 自己的浮层（选择器等）不参与居中，这种情况静默跳过
+    if belongs_to_us(hwnd):
+        return None, ""
+    return None, "当前窗口不支持居中"
+
+
+def center_foreground(pixel_perfect: bool = True,
+                      on_centered=None,
+                      fallback_hwnd: int = 0) -> tuple[bool, str]:
+    """居中当前窗口，并支持托盘菜单导致的焦点回退。"""
+    info, reason = foreground_info(fallback_hwnd)
     if info is None:
-        # 自己的浮层（选择器等）不参与居中，这种情况静默跳过
-        if belongs_to_us(hwnd):
-            return False, ""
-        return False, "当前窗口不支持居中"
+        return False, reason
     return center(info, pixel_perfect, on_centered=on_centered)
 
 
 def center_all(pixel_perfect: bool = True,
                ignore_list: list[str] | None = None,
-               on_centered=None) -> tuple[int, int]:
+               on_centered=None,
+               on_access_denied=None) -> tuple[int, int]:
     """批量居中。跳过最小化、最大化、全屏窗口 —— 不做惊喜式打扰。
 
     自己的设置窗口同样会被居中（三种模式行为保持一致）。
     """
     count = 0
     total = 0
+    denied: list[WindowInfo] = []
     for info in list_windows(ignore_list, include_minimized=False, allow_own=True):
         if info.fullscreen or info.maximized or info.minimized:
             continue
         total += 1
-        ok, _ = center(info, pixel_perfect, on_centered=on_centered)
+        ok, reason = center(info, pixel_perfect, on_centered=on_centered)
         if ok:
             count += 1
+        elif reason == ELEVATION_REQUIRED:
+            denied.append(info)
+    if denied and on_access_denied is not None:
+        count += max(0, int(on_access_denied(denied)))
     return count, total
 
 

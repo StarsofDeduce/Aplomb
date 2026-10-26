@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.1-blue?style=flat-square" alt="Version 1.2.1">
+  <img src="https://img.shields.io/badge/version-1.2.2-blue?style=flat-square" alt="Version 1.2.2">
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows" alt="Windows">
   <img src="https://img.shields.io/badge/framework-PySide6-41CD52?style=flat-square&logo=qt" alt="PySide6">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
@@ -35,6 +35,7 @@ Aplomb reads `DWMWA_EXTENDED_FRAME_BOUNDS`, aligns the visible frame, and then c
 ## Features
 
 - **Three focused actions:** center the active window, choose windows to center, or center every eligible window.
+- **Elevated windows on demand:** ordinary windows are always handled by the non-elevated main app. The first blocked manual action in each run requests UAC once, then reuses a session-scoped helper that can only center windows until Aplomb exits. Auto-centering rules never raise a background consent prompt.
 - **Precise auto-centering:** rules match the full executable path and window class, and only standard main windows qualify. Notifications, tool windows, and ordinary dialogs are left alone. Aplomb centers once as early as window creation or display allows, then respects all later app and user positioning. It is event-driven (`SetWinEventHook`) with no idle polling. Automatic enrollment is a separate, off-by-default option.
 - **Unassigned shortcuts by default:** Aplomb does not claim global key combinations until you record them in Settings. Each shortcut can also be cleared instantly.
 - **Thumbnail picker:** filter by title or process name, navigate with the keyboard, and select multiple windows with `Ctrl` + click.
@@ -56,16 +57,16 @@ Aplomb reads `DWMWA_EXTENDED_FRAME_BOUNDS`, aligns the visible frame, and then c
 
 ### Installer
 
-Download `Aplomb-Setup-1.2.1.exe` from [Releases](../../releases).
+Download `Aplomb-Setup-1.2.2.exe` from [Releases](../../releases).
 
-- Installs to `%LOCALAPPDATA%\Programs\Aplomb` without a UAC prompt.
+- Installs to `%LOCALAPPDATA%\Programs\Aplomb` without UAC; manually centering an elevated window may request one-time consent.
 - Can create a desktop shortcut and start Aplomb when you sign in.
 - Adds Start menu and Windows uninstall entries.
 - Keeps settings in `%APPDATA%\Aplomb` when the application is uninstalled.
 
 ### Portable build
 
-Download `Aplomb-1.2.1-portable.zip`, extract it, and run `Aplomb.exe`.
+Download `Aplomb-1.2.2-portable.zip`, extract it, and run `Aplomb.exe`.
 
 Portable settings are stored in the adjacent `data\` directory. Delete `portable.txt` if you prefer to store settings in `%APPDATA%\Aplomb` instead.
 
@@ -149,6 +150,7 @@ Aplomb/
 ├── app/
 │   ├── win32api.py           # ctypes declarations and safe Win32 wrappers
 │   ├── windows.py            # window discovery, filtering, and centering
+│   ├── elevated.py           # on-demand elevated centering helper reused for this run
 │   ├── remember.py           # event-driven precise auto-centering rules
 │   ├── hotkeys.py            # RegisterHotKey and native event filtering
 │   ├── thumbnails.py         # PrintWindow thumbnail capture

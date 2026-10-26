@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.1-blue?style=flat-square" alt="版本 1.2.1">
+  <img src="https://img.shields.io/badge/version-1.2.2-blue?style=flat-square" alt="版本 1.2.2">
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows" alt="Windows">
   <img src="https://img.shields.io/badge/framework-PySide6-41CD52?style=flat-square&logo=qt" alt="PySide6">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT 许可证">
@@ -35,6 +35,7 @@ Aplomb 读取 `DWMWA_EXTENDED_FRAME_BOUNDS` 拿到真实可见边框，按可见
 ## 功能特性
 
 - **三个专注的动作**：居中当前窗口、选择窗口居中、全部窗口居中。
+- **按需处理管理员窗口**：普通窗口始终由非管理员主程序直接处理；本次运行中第一次手动操作被 Windows 权限边界拦截时请求一次 UAC，随后复用仅负责居中的会话级辅助进程，直至 Aplomb 退出。自动居中规则不会在后台弹出授权提示。
 - **精确自动居中**：规则按完整程序路径和窗口类匹配，只处理标准主窗口；通知、工具窗和普通对话框不会跟随。Aplomb 在窗口创建或显示时尽早居中一次，随后完全尊重应用和用户的位置调整。事件驱动（`SetWinEventHook`），空闲零轮询。自动收录是独立开关且默认关闭。
 - **默认不占用快捷键**：不录制就不注册任何全局组合键，每项也可以随时清空。
 - **缩略图选择器**：按标题或进程名过滤，键盘导航，`Ctrl` + 点击多选。
@@ -56,16 +57,16 @@ Aplomb 读取 `DWMWA_EXTENDED_FRAME_BOUNDS` 拿到真实可见边框，按可见
 
 ### 安装包
 
-从 [Releases](../../releases) 下载 `Aplomb-Setup-1.2.1.exe`。
+从 [Releases](../../releases) 下载 `Aplomb-Setup-1.2.2.exe`。
 
-- 安装到 `%LOCALAPPDATA%\Programs\Aplomb`，全程无 UAC 弹窗。
+- 安装到 `%LOCALAPPDATA%\Programs\Aplomb`，安装本身无需 UAC；手动居中管理员窗口时可能按需请求一次授权。
 - 可创建桌面快捷方式、开机自启。
 - 自动添加开始菜单与 Windows 卸载项。
 - 卸载时保留 `%APPDATA%\Aplomb` 中的设置。
 
 ### 便携版
 
-下载 `Aplomb-1.2.1-portable.zip`，解压后直接运行 `Aplomb.exe`。
+下载 `Aplomb-1.2.2-portable.zip`，解压后直接运行 `Aplomb.exe`。
 
 便携版的设置保存在旁边的 `data\` 目录。删掉 `portable.txt` 即可改回把设置存到 `%APPDATA%\Aplomb`。
 
@@ -149,6 +150,7 @@ Aplomb/
 ├── app/
 │   ├── win32api.py           # ctypes 声明与安全的 Win32 封装
 │   ├── windows.py            # 窗口盘点、过滤与居中算法
+│   ├── elevated.py           # 本次运行复用的按需管理员居中辅助进程
 │   ├── remember.py           # 事件驱动的精确自动居中规则
 │   ├── hotkeys.py            # RegisterHotKey 与原生事件过滤
 │   ├── thumbnails.py         # PrintWindow 缩略图捕获

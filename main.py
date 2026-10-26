@@ -14,11 +14,20 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+# 管理员 broker 不创建 Qt、托盘或单实例对象，既减小权限面也降低驻留内存。
+if __name__ == "__main__" and "--elevated-broker" in sys.argv[1:]:
+    from app import elevated as _broker_elevated
+    from app import win32api as _broker_win32api
+
+    _broker_win32api.set_process_dpi_awareness()
+    raise SystemExit(_broker_elevated.run_broker(sys.argv[1:]))
+
 from PySide6.QtCore import QAbstractNativeEventFilter, QObject, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon, QWidget
 
 from app import APP_NAME
 from app import autostart
+from app import elevated
 from app import win32api as W
 from app import windows as winlib
 from app.config import Config, system_prefers_dark
@@ -83,6 +92,8 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
         self.host.setWindowTitle(INSTANCE_WINDOW_TITLE)
         self.host.setWindowFlags(Qt.Tool)
         self.hwnd = int(self.host.winId())
+        self.elevated_broker = elevated.BrokerClient(self.hwnd)
+        qapp.aboutToQuit.connect(self.elevated_broker.close)
 
         self.hotkeys = HotkeyManager(self.hwnd, self)
         self.hotkeys.triggered.connect(self._on_hotkey)
@@ -94,6 +105,17 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
         self.settings: SettingsWindow | None = None
         self.picker: PickerWindow | None = None
         self._hotkey_failures: list[str] = []
+        self._last_foreground = int(W.user32.GetForegroundWindow() or 0)
+        self._foreground_proc = W.WINEVENTPROC(self._on_foreground_event)
+        self._foreground_hook = W.user32.SetWinEventHook(
+            W.EVENT_SYSTEM_FOREGROUND,
+            W.EVENT_SYSTEM_FOREGROUND,
+            None,
+            self._foreground_proc,
+            0,
+            0,
+            W.WINEVENT_OUTOFCONTEXT | W.WINEVENT_SKIPOWNPROCESS,
+        )
 
         self._wire()
 
@@ -188,6 +210,36 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
         if self.config.get("show_notifications", True):
             self.tray.notify(APP_NAME, message)
 
+    def _on_foreground_event(self, _hook, _event, hwnd, _id_object,
+                             _id_child, _thread, _time_ms) -> None:
+        """保存最近一个真实应用窗口，供托盘菜单动作恢复目标。"""
+        try:
+            hwnd = int(hwnd or 0)
+            if hwnd and winlib.inspect(hwnd, allow_own=False) is not None:
+                self._last_foreground = hwnd
+        except Exception:
+            pass
+
+    def _elevated_center(self, infos: list[winlib.WindowInfo], *,
+                         remember: bool) -> tuple[int, str]:
+        """一次 UAC 授权处理一组被完整性级别拦截的窗口。"""
+        if not infos:
+            return 0, ""
+        result = self.elevated_broker.center(
+            [info.hwnd for info in infos],
+            self.config.get("pixel_perfect", True),
+        )
+        if result.cancelled:
+            return 0, "已取消管理员授权"
+        if result.error:
+            return 0, "管理员辅助进程未能完成移动"
+        if remember and result.moved == len(infos):
+            for info in infos:
+                self.remember.record(info)
+        if result.moved < len(infos):
+            return result.moved, f"有 {len(infos) - result.moved} 个窗口仍未能居中"
+        return result.moved, ""
+
     def _on_hotkey(self, action: str) -> None:
         if action == "center_current":
             self.action_center_current()
@@ -197,21 +249,43 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
             self.action_center_all()
 
     def action_center_current(self) -> None:
-        ok, reason = winlib.center_foreground(
+        info, reason = winlib.foreground_info(self._last_foreground)
+        if info is None:
+            if reason:
+                self._notify(reason)
+            return
+        ok, reason = winlib.center(
+            info,
             self.config.get("pixel_perfect", True),
             on_centered=self.remember.record,
         )
+        if not ok and reason == winlib.ELEVATION_REQUIRED:
+            moved, reason = self._elevated_center([info], remember=True)
+            ok = moved == 1
         # 没有原因说明是"无需提示"的情况，别弹空通知
         if not ok and reason:
             self._notify(reason)
 
     def action_center_all(self) -> None:
+        elevated_reason = ""
+
+        def center_elevated(infos: list[winlib.WindowInfo]) -> int:
+            nonlocal elevated_reason
+            moved, elevated_reason = self._elevated_center(infos, remember=False)
+            return moved
+
         count, total = winlib.center_all(
             self.config.get("pixel_perfect", True),
             self.config.get("ignore_list", []),
+            on_access_denied=center_elevated,
         )
         if count:
-            self._notify(f"已居中 {count} 个窗口")
+            message = f"已居中 {count} 个窗口"
+            if elevated_reason:
+                message += f"；{elevated_reason}"
+            self._notify(message)
+        elif elevated_reason:
+            self._notify(elevated_reason)
         elif total == 0:
             self._notify("没有可居中的窗口")
 
@@ -228,18 +302,27 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
     def _on_picker_chosen(self, hwnds: list[int]) -> None:
         pixel_perfect = self.config.get("pixel_perfect", True)
         done = 0
+        denied: list[winlib.WindowInfo] = []
         for hwnd in hwnds:
             info = winlib.inspect(hwnd, allow_own=True)
             if info is None:
                 continue
-            ok, _ = winlib.center(info, pixel_perfect)
+            ok, reason = winlib.center(info, pixel_perfect)
             if ok:
                 done += 1
                 self.remember.record(info)
+            elif reason == winlib.ELEVATION_REQUIRED:
+                denied.append(info)
+        elevated_reason = ""
+        if denied:
+            moved, elevated_reason = self._elevated_center(denied, remember=True)
+            done += moved
         if done:
             winlib.activate(hwnds[0])
+            if elevated_reason:
+                self._notify(f"已居中 {done} 个窗口；{elevated_reason}")
         else:
-            self._notify("这些窗口没能居中")
+            self._notify(elevated_reason or "这些窗口没能居中")
 
     # ------------------------------------------------------------------ #
     def show_settings(self) -> None:
@@ -250,8 +333,12 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
 
     def quit(self) -> None:
         self.hotkeys.unregister_all()
+        self.elevated_broker.close()
         if self.picker is not None:
             self.picker.close_picker()
+        if self._foreground_hook:
+            W.user32.UnhookWinEvent(self._foreground_hook)
+            self._foreground_hook = None
         self.tray.hide()
         self.host.close()
         self.qapp.quit()

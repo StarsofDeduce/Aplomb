@@ -9,7 +9,7 @@ SetCompressor /SOLID lzma
 !include "FileFunc.nsh"
 
 !ifndef APP_VERSION
-  !define APP_VERSION "1.2.1"
+  !define APP_VERSION "1.2.2"
 !endif
 
 !define APP_NAME "Aplomb"

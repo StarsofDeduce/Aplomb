@@ -17,6 +17,7 @@ user32 = ctypes.WinDLL("user32", use_last_error=True)
 gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
 dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+shell32 = ctypes.WinDLL("shell32", use_last_error=True)
 
 LRESULT = ctypes.c_ssize_t
 
@@ -96,6 +97,26 @@ class MSG(ctypes.Structure):
     ]
 
 
+class SHELLEXECUTEINFOW(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", w.DWORD),
+        ("fMask", w.DWORD),
+        ("hwnd", w.HWND),
+        ("lpVerb", w.LPCWSTR),
+        ("lpFile", w.LPCWSTR),
+        ("lpParameters", w.LPCWSTR),
+        ("lpDirectory", w.LPCWSTR),
+        ("nShow", ctypes.c_int),
+        ("hInstApp", w.HINSTANCE),
+        ("lpIDList", ctypes.c_void_p),
+        ("lpClass", w.LPCWSTR),
+        ("hkeyClass", w.HKEY),
+        ("dwHotKey", w.DWORD),
+        ("hIcon", w.HANDLE),
+        ("hProcess", w.HANDLE),
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # 常量
 # --------------------------------------------------------------------------- #
@@ -130,6 +151,7 @@ DWMWA_CLOAKED = 14
 EVENT_OBJECT_CREATE = 0x8000
 EVENT_OBJECT_DESTROY = 0x8001
 EVENT_OBJECT_SHOW = 0x8002
+EVENT_SYSTEM_FOREGROUND = 0x0003
 WINEVENT_OUTOFCONTEXT = 0x0000
 WINEVENT_SKIPOWNPROCESS = 0x0002
 OBJID_WINDOW = 0
@@ -153,6 +175,18 @@ MOD_WIN = 0x0008
 MOD_NOREPEAT = 0x4000
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+SEE_MASK_NOCLOSEPROCESS = 0x00000040
+SEE_MASK_NOASYNC = 0x00000100
+SEE_MASK_FLAG_NO_UI = 0x00000400
+SW_HIDE = 0
+INFINITE = 0xFFFFFFFF
+WAIT_OBJECT_0 = 0
+WAIT_TIMEOUT = 258
+STILL_ACTIVE = 259
+ERROR_ACCESS_DENIED = 5
+ERROR_CANCELLED = 1223
+SYNCHRONIZE = 0x00100000
 
 BI_RGB = 0
 DIB_RGB_COLORS = 0
@@ -242,6 +276,10 @@ _proto(kernel32.OpenProcess, [w.DWORD, w.BOOL, w.DWORD], w.HANDLE)
 _proto(kernel32.CloseHandle, [w.HANDLE], w.BOOL)
 _proto(kernel32.QueryFullProcessImageNameW,
        [w.HANDLE, w.DWORD, w.LPWSTR, ctypes.POINTER(w.DWORD)], w.BOOL)
+_proto(kernel32.WaitForSingleObject, [w.HANDLE, w.DWORD], w.DWORD)
+_proto(kernel32.GetExitCodeProcess, [w.HANDLE, ctypes.POINTER(w.DWORD)], w.BOOL)
+_proto(kernel32.TerminateProcess, [w.HANDLE, w.UINT], w.BOOL)
+_proto(shell32.ShellExecuteExW, [ctypes.POINTER(SHELLEXECUTEINFOW)], w.BOOL)
 
 # 64 位下取窗口样式必须用 GetWindowLongPtrW
 _get_window_long = getattr(user32, "GetWindowLongPtrW", None) or user32.GetWindowLongW
@@ -322,6 +360,7 @@ def get_placement(hwnd: int) -> WINDOWPLACEMENT | None:
 
 def set_placement(hwnd: int, placement: WINDOWPLACEMENT) -> bool:
     placement.length = ctypes.sizeof(WINDOWPLACEMENT)
+    ctypes.set_last_error(0)
     return bool(user32.SetWindowPlacement(hwnd, ctypes.byref(placement)))
 
 
@@ -388,6 +427,7 @@ def get_monitor_info(hwnd: int) -> MONITORINFO | None:
 
 def set_window_pos(hwnd: int, x: int, y: int, cx: int, cy: int,
                    flags: int = SWP_NOZORDER | SWP_NOACTIVATE) -> bool:
+    ctypes.set_last_error(0)
     return bool(user32.SetWindowPos(hwnd, 0, x, y, cx, cy, flags))
 
 

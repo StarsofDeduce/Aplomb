@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import os
 import sys
 import tempfile
@@ -111,6 +112,31 @@ if info is not None:
     naive_dx = (naive.left + naive.right) / 2 - (work.left + work.right) / 2
     check("关闭阴影修正后按窗口矩形居中", abs(naive_dx) <= 1,
           f"偏移 dx={naive_dx:.1f}")
+
+    # 权限边界必须与普通移动失败分开报告，主程序才会只在必要时请求 UAC。
+    original_set_window_pos = W.set_window_pos
+    try:
+        def deny_move(*_args, **_kwargs):
+            ctypes.set_last_error(W.ERROR_ACCESS_DENIED)
+            return False
+
+        W.set_window_pos = deny_move
+        denied, denied_reason = winlib.center(info, pixel_perfect=True)
+        check("权限拒绝会请求管理员辅助模式",
+              not denied and denied_reason == winlib.ELEVATION_REQUIRED,
+              denied_reason)
+
+        def fail_move(*_args, **_kwargs):
+            ctypes.set_last_error(87)  # ERROR_INVALID_PARAMETER
+            return False
+
+        W.set_window_pos = fail_move
+        failed, failed_reason = winlib.center(info, pixel_perfect=True)
+        check("普通移动失败不会误弹 UAC",
+              not failed and failed_reason == "系统拒绝了这次移动",
+              failed_reason)
+    finally:
+        W.set_window_pos = original_set_window_pos
 
     # --------------------------------------- 非普通状态不改变，只更新还原几何
     # 旧版 bug：对最小化窗口 GetWindowRect 拿到 (-32000,-32000) 的停车位

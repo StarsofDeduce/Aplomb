@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.2-blue?style=flat-square" alt="Version 1.2.2">
+  <img src="https://img.shields.io/badge/version-1.2.3-blue?style=flat-square" alt="Version 1.2.3">
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows" alt="Windows">
   <img src="https://img.shields.io/badge/framework-PySide6-41CD52?style=flat-square&logo=qt" alt="PySide6">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
@@ -36,9 +36,9 @@ Aplomb reads `DWMWA_EXTENDED_FRAME_BOUNDS`, aligns the visible frame, and then c
 
 - **Three focused actions:** center the active window, choose windows to center, or center every eligible window.
 - **Elevated windows on demand:** ordinary windows are always handled by the non-elevated main app. The first blocked manual action in each run requests UAC once, then reuses a session-scoped helper that can only center windows until Aplomb exits. Auto-centering rules never raise a background consent prompt.
-- **Precise auto-centering:** rules match the full executable path and window class, and only standard main windows qualify. Notifications, tool windows, and ordinary dialogs are left alone. Aplomb centers once as early as window creation or display allows, then respects all later app and user positioning. It is event-driven (`SetWinEventHook`) with no idle polling. Automatic enrollment is a separate, off-by-default option.
+- **Precise auto-centering:** rules match the full executable path, window class, and a stable window-role signature, so same-class feature windows from the same app are left alone. Aplomb centers the selected main-window type once after its startup geometry settles, then respects all later app and user positioning. It is event-driven (`SetWinEventHook`) with no idle polling. Automatic enrollment is a separate, off-by-default option.
 - **Unassigned shortcuts by default:** Aplomb does not claim global key combinations until you record them in Settings. Each shortcut can also be cleared instantly.
-- **Thumbnail picker:** filter by title or process name, navigate with the keyboard, and select multiple windows with `Ctrl` + click.
+- **Thumbnail picker:** always opens in the center of the cursor's display work area; filter by title or process name, navigate with the keyboard, and select multiple windows with `Ctrl` + click.
 - **Multi-monitor awareness:** each window is centered on the display that currently contains it.
 - **State-safe behavior:** full-screen, shell, ignored, and unresponsive windows are skipped; batch operations also skip minimized and maximized windows. Selecting a non-normal window individually updates its future restore position only when safe and never changes its current state.
 - **Program lists:** the ignore list remains executable-based, while auto-centering rules can only be created from an open, eligible main window so same-process notifications are not captured accidentally.
@@ -57,7 +57,7 @@ Aplomb reads `DWMWA_EXTENDED_FRAME_BOUNDS`, aligns the visible frame, and then c
 
 ### Installer
 
-Download `Aplomb-Setup-1.2.2.exe` from [Releases](../../releases).
+Download `Aplomb-Setup-1.2.3.exe` from [Releases](../../releases).
 
 - Installs to `%LOCALAPPDATA%\Programs\Aplomb` without UAC; manually centering an elevated window may request one-time consent.
 - Can create a desktop shortcut and start Aplomb when you sign in.
@@ -66,7 +66,7 @@ Download `Aplomb-Setup-1.2.2.exe` from [Releases](../../releases).
 
 ### Portable build
 
-Download `Aplomb-1.2.2-portable.zip`, extract it, and run `Aplomb.exe`.
+Download `Aplomb-1.2.3-portable.zip`, extract it, and run `Aplomb.exe`.
 
 Portable settings are stored in the adjacent `data\` directory. Delete `portable.txt` if you prefer to store settings in `%APPDATA%\Aplomb` instead.
 
@@ -188,7 +188,7 @@ python tools/hang_probe.py  # startup time and UI-thread responsiveness
 - Pure moves pass `SWP_NOSIZE` so the target app receives no spurious `WM_SIZE`.
 - Shadow compensation is clamped to a sane margin; if `GetWindowRect` and the DWM frame bounds disagree wildly (for example under DPI virtualization), Aplomb falls back to plain rectangle centering instead of producing a wild offset.
 - The process declares per-monitor-v2 DPI awareness itself at startup, before any window exists — window coordinates are physical pixels by contract, not by Qt's implicit behavior.
-- Precise auto-centering listens for window create, show, and destroy events. It attempts a pre-show move when geometry is already usable, otherwise it moves the window once as soon as the show event is delivered. It never tracks or pulls the window back afterwards. Cross-process WinEvents are asynchronous, so a completely flash-free result cannot be guaranteed for every third-party app.
+- Precise auto-centering listens for window create, show, and destroy events. After a show event it briefly samples geometry without moving the window, then performs one move once the startup placement is stable. Older path-and-class-only rules gain a window-role signature on their first trusted main-window match. Aplomb never tracks or pulls the window back afterwards. Cross-process WinEvents are asynchronous, so a completely flash-free result cannot be guaranteed for every third-party app.
 - Settings pages pin their layout size hints below the visible area of the fixed-size translucent window. Qt enlarges a fixed frameless translucent window during geometry changes whenever a page's preferred height exceeds the visible area — the stretch-then-freeze some users saw when dragging the settings window in early 1.1.0 builds.
 - Window titles are read with `SendMessageTimeout` after checking `IsHungAppWindow`, so an unresponsive application cannot freeze the picker.
 - Duplicate Qt native `WM_HOTKEY` deliveries are filtered by message identity and timestamp.
@@ -208,7 +208,7 @@ Measured on a 1080p desktop with seven open windows:
 
 - Windows 10 and 11 only.
 - Exclusive full-screen windows are intentionally not moved.
-- Some apps restore their own placement after becoming visible. Aplomb deliberately does not fight them, so they may override an automatic centering attempt; the manual shortcuts remain available.
+- Aplomb waits for up to about 0.8 seconds for a new window to finish startup placement. A few apps may restore their own position even later and override the automatic result; the manual shortcuts remain available.
 - Some Electron or hardware-accelerated windows cannot be captured with `PrintWindow`; the picker displays the application icon instead.
 - Do not run installed and portable builds at the same time. A single-instance lock redirects the second launch to the existing process.
 - The dark-blue half of the tray icon has limited contrast on dark taskbars at 16 px.

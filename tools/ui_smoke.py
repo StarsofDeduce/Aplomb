@@ -15,7 +15,7 @@ _config_temp = tempfile.TemporaryDirectory(prefix="aplomb-ui-smoke-")
 os.environ["APLOMB_CONFIG_DIR"] = _config_temp.name
 
 from PySide6.QtCore import QCoreApplication, QEvent, QPointF, Qt
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QCursor, QGuiApplication, QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -197,6 +197,16 @@ cfg.reset_hotkeys()
 settings.refresh()
 check("恢复默认值为空", all(cfg.get(key) == "" for _, key, _, _ in HOTKEY_FIELDS))
 
+# 界面使用“禁止缩略图”的正向开关，但继续兼容原 picker_thumbnails 配置。
+settings.thumb_toggle.setChecked(True)
+app.processEvents()
+check("开启不显示缩略图会关闭旧配置项",
+      cfg.get("picker_thumbnails") is False)
+settings.thumb_toggle.setChecked(False)
+app.processEvents()
+check("关闭不显示缩略图会恢复缩略图",
+      cfg.get("picker_thumbnails") is True)
+
 settings.hide()
 app.processEvents()
 
@@ -209,6 +219,18 @@ picker.open(cfg.get("ignore_list", []), True)
 app.processEvents()
 total = len(picker._cards)
 check("选择器载入窗口", total > 0, f"{total} 个")
+
+picker_screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+picker_area = picker_screen.availableGeometry()
+picker_center = picker.frameGeometry().center()
+area_center = picker_area.center()
+check(
+    "多窗口选择器位于鼠标所在屏幕正中",
+    abs(picker_center.x() - area_center.x()) <= 1
+    and abs(picker_center.y() - area_center.y()) <= 1,
+    f"picker=({picker_center.x()},{picker_center.y()}), "
+    f"screen=({area_center.x()},{area_center.y()}), windows={total}",
+)
 
 picker.search.setText("zzzzzz-no-such-window")
 app.processEvents()

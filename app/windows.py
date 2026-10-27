@@ -42,6 +42,24 @@ IMMOVABLE_CLASSES = frozenset({
 
 ELEVATION_REQUIRED = "目标窗口需要管理员授权"
 
+# 只记录描述“窗口角色”的稳定样式位。WS_VISIBLE、WS_MINIMIZE、
+# WS_MAXIMIZE 等运行状态不能进入签名，否则同一个主窗口改变状态后就会失配。
+AUTOMATION_STYLE_MASK = (
+    W.WS_CAPTION
+    | W.WS_THICKFRAME
+    | W.WS_SYSMENU
+    | W.WS_MINIMIZEBOX
+    | W.WS_MAXIMIZEBOX
+)
+AUTOMATION_EX_STYLE_MASK = (
+    W.WS_EX_TOPMOST
+    | W.WS_EX_TOOLWINDOW
+    | W.WS_EX_WINDOWEDGE
+    | W.WS_EX_CLIENTEDGE
+    | W.WS_EX_APPWINDOW
+    | W.WS_EX_NOACTIVATE
+)
+
 
 @dataclass(slots=True)
 class WindowInfo:
@@ -236,6 +254,32 @@ def normalized_exe_path(path: str) -> str:
     if not path:
         return ""
     return os.path.normcase(os.path.normpath(path.strip()))
+
+
+def automation_signature(info: WindowInfo) -> tuple[int, int]:
+    """返回可持久化的窗口角色签名，不包含可见/最小化/最大化状态。"""
+    return (
+        int(info.style) & AUTOMATION_STYLE_MASK,
+        int(info.ex_style) & AUTOMATION_EX_STYLE_MASK,
+    )
+
+
+def legacy_primary_candidate(info: WindowInfo) -> bool:
+    """旧规则升级时，只接受外观上足够像主任务窗口的候选。
+
+    旧的“路径 + 类名”无法区分 QQ 音乐这类共用窗口类的功能浮层。
+    因此迁移时额外要求标题、合理尺寸，以及标准标题栏/可调整边框/
+    明确任务栏标志之一；新规则一旦补全签名便不再依赖这些启发式条件。
+    """
+    title = info.title.strip() or W.get_window_text(info.hwnd).strip()
+    if not automation_eligible(info) or not title:
+        return False
+    if info.rect.width < 320 or info.rect.height < 240:
+        return False
+    structural = int(info.style) & (
+        W.WS_CAPTION | W.WS_THICKFRAME | W.WS_SYSMENU
+    )
+    return bool(structural or info.ex_style & W.WS_EX_APPWINDOW)
 
 
 def automation_eligible(info: WindowInfo) -> bool:

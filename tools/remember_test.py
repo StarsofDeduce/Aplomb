@@ -93,11 +93,26 @@ try:
         manager = RememberManager(cfg)
         check("没有精确规则时不匹配", not manager._matches(first_info))
         check("精确规则创建成功", add_rule(cfg, first_info))
-        check("精确规则持久化", len(valid_rules(cfg.get("remember_rules"))) == 1)
+        saved_rules = valid_rules(cfg.get("remember_rules"))
+        check("精确规则持久化", len(saved_rules) == 1)
+        check(
+            "新规则保存稳定窗口结构签名",
+            len(saved_rules) == 1
+            and "style_signature" in saved_rules[0]
+            and "ex_style_signature" in saved_rules[0],
+        )
         manager.sync()
 
         different_class = replace(first_info, class_name="AplombDifferentWindowClass")
         check("同一路径不同窗口类不匹配", not manager._matches(different_class))
+
+        # 模拟 1.2.0-1.2.2 仅含路径和类名的规则，下一次可信主窗口
+        # 命中时应自动补全签名，不要求用户删除后重新添加。
+        legacy_rule = dict(saved_rules[0])
+        legacy_rule.pop("style_signature", None)
+        legacy_rule.pop("ex_style_signature", None)
+        cfg.set("remember_rules", [legacy_rule])
+        check("旧规则仍可识别可信主窗口", manager._matches(first_info))
 finally:
     stop(first)
 
@@ -105,7 +120,8 @@ finally:
 if manager is None:
     manager = RememberManager(cfg)
 second = subprocess.Popen(
-    [sys.executable, target_script, "--popup", "--delay-ms", "350",
+    [sys.executable, target_script, "--popup", "--same-class-feature",
+     "--restore-after-show-ms", "90", "--delay-ms", "350",
      "--lifetime-ms", "12000"],
     stdout=subprocess.DEVNULL,
     stderr=subprocess.DEVNULL,
@@ -114,16 +130,46 @@ second = subprocess.Popen(
 try:
     main_hwnd = wait_title("Aplomb Test Target")
     notice_hwnd = wait_title("Aplomb Test Notice")
-    deadline = time.monotonic() + 0.8
+    feature_hwnd = wait_title("Aplomb Test Feature")
+    feature_before = W.get_window_rect(feature_hwnd) if feature_hwnd else None
+    deadline = time.monotonic() + 1.2
     while time.monotonic() < deadline:
         app.processEvents()
         time.sleep(0.02)
 
     main_info = winlib.inspect(main_hwnd) if main_hwnd else None
+    feature_info = winlib.inspect(feature_hwnd) if feature_hwnd else None
     main_rect = W.get_visible_frame(main_hwnd) if main_hwnd else None
     notice_rect = W.get_window_rect(notice_hwnd) if notice_hwnd else None
+    feature_after = W.get_window_rect(feature_hwnd) if feature_hwnd else None
     check("精确规则目标窗口已出现", main_info is not None)
     check("同进程通知窗口已出现", notice_rect is not None)
+    check("同类功能窗口已出现", feature_after is not None)
+    check(
+        "功能窗确实与主窗口共用窗口类",
+        main_info is not None
+        and feature_info is not None
+        and feature_info.class_name == main_info.class_name,
+        "" if main_info is None or feature_info is None else
+        f"main={main_info.class_name}, feature={feature_info.class_name}",
+    )
+    check(
+        "功能窗能通过旧版基础资格筛选",
+        feature_info is not None
+        and winlib.automation_eligible(feature_info)
+        and manager._base_matches(feature_info),
+    )
+    check(
+        "窗口结构签名排除同类功能窗",
+        feature_info is not None and not manager._matches(feature_info),
+    )
+    migrated_rules = valid_rules(cfg.get("remember_rules"))
+    check(
+        "旧规则首次命中后自动补全窗口结构签名",
+        len(migrated_rules) == 1
+        and "style_signature" in migrated_rules[0]
+        and "ex_style_signature" in migrated_rules[0],
+    )
 
     if main_info is not None and main_rect is not None:
         work = main_info.work_rect
@@ -140,6 +186,15 @@ try:
               f"rect=({notice_rect.left},{notice_rect.top},{notice_rect.right},{notice_rect.bottom})")
         notice_info = winlib.inspect(notice_hwnd)
         check("通知窗口不具备自动规则资格", notice_info is None)
+
+    if feature_before is not None and feature_after is not None:
+        check(
+            "同路径同类名但窗口结构不同的功能窗不移动",
+            (feature_before.left, feature_before.top) ==
+            (feature_after.left, feature_after.top),
+            f"before={(feature_before.left, feature_before.top)}, "
+            f"after={(feature_after.left, feature_after.top)}",
+        )
 
     if main_hwnd:
         before = W.get_window_rect(main_hwnd)

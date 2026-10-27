@@ -440,9 +440,13 @@ class SettingsWindow(QWidget):
 
         self.thumb_toggle = ToggleSwitch(group)
         self.thumb_toggle.toggled.connect(
-            lambda v: self.config.set("picker_thumbnails", v)
+            lambda hidden: self.config.set("picker_thumbnails", not hidden)
         )
-        group.add_row(SettingRow("选择器显示缩略图", "关闭后只显示图标，呼出更快", self.thumb_toggle, group))
+        group.add_row(SettingRow(
+            "选择器不显示缩略图",
+            "开启后只显示图标，呼出更快",
+            self.thumb_toggle, group,
+        ))
 
         layout.addWidget(group)
         layout.addSpacing(26)
@@ -503,7 +507,7 @@ class SettingsWindow(QWidget):
         self.remember_toggle.toggled.connect(self._on_remember)
         layout.addWidget(SettingRow(
             "自动居中",
-            "对精确规则匹配的主窗口尽早居中一次，不持续拉回",
+            "对精确规则匹配的主窗口在显示稳定后居中一次，不持续拉回",
             self.remember_toggle, page,
         ))
         layout.addSpacing(4)
@@ -804,7 +808,9 @@ class SettingsWindow(QWidget):
         self.remember_after_manual_toggle.setChecked(
             bool(self.config.get("remember_after_manual_center", False))
         )
-        self.thumb_toggle.setChecked(bool(self.config.get("picker_thumbnails", True)))
+        self.thumb_toggle.setChecked(
+            not bool(self.config.get("picker_thumbnails", True))
+        )
         self.theme_segment.set_value(self.config.get("theme", "system"))
         self._reload_ignore_list()
         self._reload_remember_list()

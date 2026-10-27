@@ -367,7 +367,8 @@ class PickerWindow(QWidget):
         screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
         area = screen.availableGeometry()
         x = area.x() + (area.width() - self.width()) // 2
-        y = area.y() + int(area.height() * 0.30) - SHADOW
+        y = area.y() + (area.height() - self.height()) // 2
+        x = max(area.x() + 8, min(x, area.right() - self.width() - 8))
         y = max(area.y() + 8, min(y, area.bottom() - self.height() - 8))
         self.move(QPoint(x, y))
 

@@ -71,7 +71,7 @@ class WindowChooser(QDialog):
         content.setSpacing(0)
 
         hint_text = (
-            "只为选中的主窗口类型建立精确规则；同一程序的通知、工具窗和对话框不会跟随。"
+            "只为选中的主窗口结构建立精确规则；同类名的功能窗、通知和对话框不会跟随。"
             if self._purpose == "remember"
             else "选中后，这些程序不会被任何居中动作移动，也不会出现在选择器里。"
         )
